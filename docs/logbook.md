@@ -66,3 +66,11 @@ EOF
 sudo apt update
 
 sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+**Entry 4**
+Have now managed to get my proxy and my api running with docker compose on my aws ubuntu server! docker ps output here:
+ubuntu@ip-172-31-33-11:~/homelab$ docker compose ps
+NAME                IMAGE                 COMMAND                  SERVICE       CREATED         STATUS         PORTS
+homelab-api         homelab-homelab-api   "python app.py"          homelab-api   8 seconds ago   Up 7 seconds   0.0.0.0:5000->5000/tcp, [::]:5000->5000/tcp
+homelab-traefik-1   traefik:v3.7          "/entrypoint.sh --ap…"   traefik       8 seconds ago   Up 7 seconds   0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+
