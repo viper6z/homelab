@@ -11,14 +11,16 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         client_socket, client_address = server_socket.accept()
         data = client_socket.recv(1024) #raw bytes from tcp
         if not data:
-            break
-        request = data.decode("utf-8").strip()#decode and strip
+            client_socket.close()
+        request = data.decode("utf-8").rstrip("\n") #decode and right strip 
         command, separator, argument = request.partition(" ")#split
         #responses:
         if command == "PING" and not argument:
             response = "PONG\n" 
         elif command == "ECHO" and argument:
             response = f"ECHO {argument}\n"
+        elif command not in ("PING", "ECHO"):
+            response = "ERROR: unknown command\n"
         else:
             response = "ERROR: invalid request\n"
 
