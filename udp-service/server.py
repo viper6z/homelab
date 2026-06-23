@@ -6,11 +6,11 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server_socket:
     port = 9001
     server_socket.bind(('0.0.0.0', port))
     
-    subscribers = []
+    subscribers = set()
     current_text = ""
     sequence = 0
 
-    While True:
+    while True:
 
         dgram, address = server_socket.recvfrom(1024)
         message = dgram.decode("utf-8")
@@ -21,13 +21,14 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server_socket:
 
         elif command == "JOIN" and not argument:
             subscribers.add(address)
-            server_socket.sendto(("welcome").encode("utf-8)), address)
+            response = f"TEXT {sequence} {current_text}"
+            server_socket.sendto(response.encode("utf-8"), address)
 
-        elif command == "LEAVE" and not argument
+        elif command == "LEAVE" and not argument:
             server_socket.sendto(("goodbye").encode("utf-8"), address)
             subscribers.discard(address)
 
-        elif command == "UPDATE" and argument:
+        elif command == "UPDATE":
             if address not in subscribers:
                 print("ignored update from unsubscribed client")
             else:
@@ -35,8 +36,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server_socket:
                 sequence += 1
                 response = f"TEXT {sequence} {argument}"
 
+                for subscriber_address in subscribers: 
+                    server_socket.sendto((response.encode("utf-8")), subscriber_address)
         else:
-            print("unknown command")
-
-        for address in subscribers:
-            server_socket.sendto((response.encode("utf-8")), address)
+            print("invalid request")
