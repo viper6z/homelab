@@ -1207,6 +1207,27 @@ dev branch
 → merge when it is green
 ```
 
+**Entry 13**
+
+Today I started the CD phase. The workflow now runs only when a pull request into `main` is merged, so direct pushes to `main` do not start a deployment.
+
+The flow so far is:
+
+```text
+merged PR
+→ GitHub OIDC logs into AWS with temporary credentials
+→ Terraform reads the real S3 state
+→ terraform plan runs
+→ I inspect the plan
+→ GitHub production environment waits for my approval
+→ terraform apply runs
+```
+
+This is working now. The next part is adding Ansible after Terraform apply so the VM also pulls the new repository state and reconciles the Compose stack.
+
+I first thought GitHub Actions could just SSH into the VM, but GitHub-hosted runners have changing public IPs and would need access to my SSH key. Instead I decided to use AWS SSM as the connection path for Ansible.
+
+The CD phase is not finished yet. Next I will add the SSM support resources in the Terraform bootstrap root, then connect Ansible to the EC2 instance through SSM instead of public SSH.
 
 
 
