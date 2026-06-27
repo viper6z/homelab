@@ -1175,6 +1175,38 @@ arn:aws:iam::127372371185:role/homelab_cd_terraform
 
 The next step is still CI first: GitHub Actions should run Terraform formatting and validation on pull requests without AWS credentials. The OIDC role will be used later for the CD workflow on pushes to `main`.
 
+**Entry 12**
+
+Today I made the first CI workflow for the homelab. It runs on pull requests into `main` and only validates the repository. Nothing gets deployed and it does not use AWS credentials.
+
+The workflow has three jobs:
+
+```text
+Terraform
+→ terraform fmt -check
+→ terraform init -backend=false
+→ terraform validate
+
+Ansible
+→ install ansible-core
+→ install the community.docker collection from requirements.yml
+→ syntax check the real playbook
+
+Docker Compose
+→ docker compose config
+```
+
+The Terraform job does not touch the S3 backend because `-backend=false` skips remote state setup. The Ansible job only parses the playbook, so it does not SSH into the VM or run tasks. The Compose job validates the root compose configuration without starting containers.
+
+So the flow is now:
+
+```text
+dev branch
+→ PR into main
+→ CI validates Terraform, Ansible and Compose
+→ merge when it is green
+```
+
 
 
 
