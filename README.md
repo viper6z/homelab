@@ -1,39 +1,112 @@
 # homelab
 
-I recently graduated with a B.Sc. in Computer Engineering and started this homelab to build practical cloud and platform engineering skills from the ground up: Linux, containers, networking, infrastructure as code, configuration management, and deployment automation.
+A small AWS deployment platform lab.
+
+The goal is to build and understand a simple path from a Git repository to containerised workloads running on an EC2 VM.
+
+```text
+Git repository
+→ GitHub Actions
+→ Terraform
+→ AWS EC2
+→ Docker Compose
+→ Nginx
+→ workload
+```
+
+This is a learning project, but it is also becoming a small platform shape that I could reuse later for deploying my own containerised services to AWS.
+
+The point is not to hide everything behind a managed product or collect tools for the sake of it. I want to own the infrastructure, understand each layer, and see what actually happens when something breaks.
+
+## What this project is
+
+The platform layer is responsible for:
+
+```text
+Terraform
+→ AWS infrastructure and state
+
+cloud-init
+→ first-boot host setup
+
+Docker Compose
+→ workload definitions and container lifecycle
+
+Nginx
+→ HTTP entry point and reverse proxy
+
+GitHub Actions
+→ validation and infrastructure deployment
+```
+
+The Python services in this repository are example workloads.
+
+They exist to exercise the platform and to learn how different kinds of applications behave when containerised and networked together.
+
+They are not meant to be the product itself.
 
 ## Current architecture
 
 ```text
-WSL Ubuntu on my laptop
-│
-├── Terraform
-│   └── creates AWS networking and the EC2 VM
-│
-└── Ansible
-    └── connects to the VM over SSH as ubuntu
-        └── installs Docker and Git, gets the repository, and runs Compose
+GitHub
+
+pull request
+→ CI validates Terraform and Compose
+
+merged pull request
+→ GitHub Actions assumes an AWS role through OIDC
+→ Terraform plan
+→ Terraform apply
+
 
 AWS
-└── EC2 Ubuntu VM
-    └── Docker Compose
-        ├── nginx
-        ├── homelab-api
-        ├── tcp-service
-        ├── udp-service
-        └── toolbox
+
+Terraform
+→ VPC
+→ public subnet
+→ internet gateway
+→ route table
+→ security group
+→ EC2 Ubuntu VM
+
+
+EC2 Ubuntu VM
+
+cloud-init bootstrap model
+→ installs Docker Engine
+→ installs Docker Compose plugin
+→ installs Git
+→ prepares the host for workloads
+
+Docker Compose
+├── nginx
+├── homelab-api
+├── tcp-service
+├── udp-service
+└── toolbox
 ```
 
-The HTTP request path inside the VM is:
+The intended deployment model is:
 
 ```text
-EC2 host:80
-→ nginx container:80
-→ backend Docker network
-→ homelab-api:5000
+Terraform
+→ creates or reconciles AWS infrastructure
+
+cloud-init
+→ configures a newly created VM on first boot
+
+Docker Compose
+→ starts and reconciles workloads
+
+GitHub Actions
+→ eventually updates workloads on the existing VM
 ```
 
-Nginx is attached to both Docker networks. It is the only service on `edge`, and it can reach the application services through `backend`.
+The workload deployment part is not finished yet. Terraform CD exists, but the next step is using AWS Systems Manager to reach the running VM and trigger the Compose deployment remotely.
+
+## Container networking
+
+The Compose stack has two Docker networks:
 
 ```text
 edge
@@ -47,69 +120,63 @@ backend
 └── toolbox
 ```
 
-The EC2 security group currently allows inbound SSH on port 22 only from my own public IP. Nginx is running and bound to port 80 on the VM, but port 80 is intentionally not open to the public internet yet.
+Nginx is the only service connected to both networks.
 
-## What is currently running
-
-| Component     | What it does                                                                            |
-| ------------- | --------------------------------------------------------------------------------------- |
-| `homelab-api` | Small Flask API with welcome, uptime, and health endpoints.                             |
-| `nginx`       | The only host-facing HTTP entry point. It proxies requests to `homelab-api:5000`.       |
-| `tcp-service` | Small custom TCP application protocol on port 9000.                                     |
-| `udp-service` | Small UDP live-text synchronization service on port 9001.                               |
-| `toolbox`     | Interactive terminal client container used to test the TCP and UDP services internally. |
-| `terraform/`  | Creates the AWS network, security group, EC2 key pair, and Ubuntu EC2 instance.         |
-| `ansible/`    | Configures the EC2 VM and deploys the Compose project.                                  |
-
-## Services
-
-### HTTP API
-
-`homelab-api` is a small Flask service built from its own Dockerfile. It listens on `0.0.0.0:5000` inside its container so other containers on the backend network can reach it.
-
-Endpoints:
+The HTTP request path is:
 
 ```text
-GET /
-→ Welcome to my homelab API!
-
-GET /time
-→ JSON uptime response
-
-GET /health
-→ {"status":"healthy"}
+EC2 host:80
+→ nginx container:80
+→ backend Docker network
+→ homelab-api:5000
 ```
 
-The API does not publish a host port. It is reachable through Nginx only.
-
-### Nginx
-
-Nginx listens on port 80 and proxies requests to the API through Docker Compose DNS:
+The API does not expose a host port directly. Nginx reaches it through Docker Compose service discovery:
 
 ```text
 http://homelab-api:5000
 ```
 
-This means the API is addressed by its Compose service name, not by a hardcoded container IP.
+This means the configuration uses service names instead of hardcoded container IP addresses.
+
+## Example workloads
+
+| Component     | What it does                                                           |
+| ------------- | ---------------------------------------------------------------------- |
+| `homelab-api` | Small Flask API with welcome, uptime, and health endpoints             |
+| `nginx`       | HTTP entry point and reverse proxy to the API                          |
+| `tcp-service` | Small custom TCP protocol experiment                                   |
+| `udp-service` | Small UDP live-text synchronisation experiment                         |
+| `toolbox`     | Internal interactive client container for testing TCP and UDP services |
+
+### HTTP API
+
+`homelab-api` is a small Flask service.
+
+It listens on `0.0.0.0:5000` inside its container so other containers on the backend network can reach it.
+
+Endpoints:
+
+```text
+GET /
+→ welcome response
+
+GET /time
+→ uptime response
+
+GET /health
+→ health response
+```
 
 ### TCP service
 
-The TCP service is a small custom application-layer protocol built using Python's standard `socket` module.
+The TCP service is a small application-layer protocol built with Python's standard `socket` module.
 
 ```text
 Transport: TCP
 Port: 9000
 Encoding: UTF-8
-Framing: one command per line, terminated by \n
-```
-
-The connection flow is deliberately simple:
-
-```text
-client opens a connection
-→ sends one command
-→ server responds
-→ server closes the connection
+Framing: one command per line
 ```
 
 Current commands:
@@ -122,100 +189,127 @@ ECHO hello
 → ECHO hello
 ```
 
-The service also returns explicit errors for unknown commands and invalid requests. It is only available inside the `backend` Docker network.
+The service is only available inside the backend Docker network.
 
 ### UDP live-text service
 
-The UDP service is a small real-time text relay. Clients join the server, send their current text, and receive the latest text from the server.
+The UDP service is a small real-time text relay.
 
 ```text
-Client start
+client joins
 → JOIN
 
-Client input changes
-→ UPDATE <current text>
+client changes text
+→ UPDATE <text>
 
-Server broadcast
+server broadcasts latest state
 → TEXT <sequence> <text>
 ```
 
-The server increases a sequence number for each update. Clients ignore older `TEXT` messages, which gives a basic way to deal with UDP messages arriving out of order.
+The server increments a sequence number for each update. Clients ignore older updates if UDP datagrams arrive out of order.
 
-This is intentionally not a collaborative editor. UDP does not guarantee delivery or ordering, and if multiple clients type at the same time, the newest server update wins. The next update contains the full text, so missing one update is acceptable for this small experiment.
+This is intentionally not a collaborative editor. The newest update wins, and later full-state updates make missed packets acceptable for this experiment.
 
 ## AWS infrastructure
 
-Terraform currently creates:
+Terraform currently manages:
 
 ```text
 VPC: 10.0.0.0/16
 → public subnet: 10.0.1.0/24
-→ Internet Gateway
-→ route table with 0.0.0.0/0 through the Internet Gateway
+→ internet gateway
+→ route table
 → security group
 → EC2 key pair
 → Ubuntu EC2 instance
 ```
 
-The VM is an amd64 EC2 host in AWS Stockholm (`eu-north-1`). It has a public IP so I can connect from WSL over SSH, but inbound access is restricted to SSH from my own IP.
-
-Terraform state is currently local to my WSL environment. Moving it to an S3 backend is planned before Terraform is allowed to run real plans or applies from GitHub Actions.
-
-## Ansible deployment
-
-My WSL machine is the Ansible control node. It connects to the EC2 VM as the `ubuntu` user using the same SSH key pair that Terraform registers with AWS.
-
-The playbook currently does this:
+The project runs in AWS Stockholm:
 
 ```text
-ensure Git is installed
-→ add Docker's official APT repository
-→ install Docker Engine, Buildx, and the Compose plugin
-→ start Docker and enable it at boot
-→ clone or update this repository on the VM
-→ run the Compose project with community.docker.docker_compose_v2
+Region: eu-north-1
 ```
 
-The goal is that a newly created VM can be turned into the running homelab without manually reinstalling Docker, cloning the repository, or starting containers by hand.
+Terraform state is stored remotely in S3 so local Terraform and GitHub Actions can use the same state.
 
-## Running the Compose stack
+## CI and CD
 
-The root `compose.yaml` includes the service Compose files, so the normal local command is run from the repository root:
+### CI
+
+CI runs on pull requests targeting `main`.
+
+Current checks:
+
+```text
+Terraform formatting
+→ Terraform validation
+→ Docker Compose configuration validation
+```
+
+The aim is to catch broken infrastructure or Compose configuration before merging.
+
+### CD
+
+CD runs when a pull request is merged into `main`.
+
+GitHub Actions uses OpenID Connect to get temporary AWS credentials instead of storing long-lived AWS access keys in GitHub.
+
+The current CD flow is:
+
+```text
+merged pull request
+→ GitHub Actions OIDC login
+→ Terraform init
+→ Terraform plan
+→ Terraform apply
+```
+
+At the moment, this handles infrastructure convergence.
+
+The next CD milestone is:
+
+```text
+GitHub Actions
+→ AWS Systems Manager
+→ existing EC2 VM
+→ update workload revision
+→ docker compose up -d --build
+```
+
+## Running the stack locally
+
+From the repository root:
 
 ```bash
 docker compose up --build
 ```
 
-`docker compose up` creates and starts the declared services. `--build` tells Compose to build the local service images before starting the stack.
+`up` creates and starts the Compose services.
 
-To see the running containers:
+`--build` tells Docker Compose to build local images before starting the stack.
+
+Check running services:
 
 ```bash
 docker compose ps
 ```
 
-`ps` prints the services in this Compose project, their status, and any host ports they publish.
-
-To test the Nginx to API path from the machine running Compose:
+Test the Nginx to API path:
 
 ```bash
 curl -i http://localhost/
 curl -i http://localhost/health
 ```
 
-`curl` makes an HTTP request. `-i` includes the response headers, which makes it easy to confirm that Nginx handled the response.
-
-To stop and remove the current Compose containers and networks:
+Stop the stack:
 
 ```bash
 docker compose down
 ```
 
-`down` stops the Compose services and removes the project resources it created. It does not delete locally built images unless extra flags are added.
-
 ## Testing the protocol services
 
-The toolbox container is attached to the internal `backend` network and has an interactive terminal enabled.
+The `toolbox` container is connected to the internal backend network.
 
 Start the TCP client:
 
@@ -223,32 +317,17 @@ Start the TCP client:
 docker compose exec -it toolbox python tcp_client.py
 ```
 
-`exec` runs a command inside an already running service container. `-i` keeps standard input open and `-t` allocates a terminal, which makes the client usable interactively.
-
 Start the UDP client:
 
 ```bash
 docker compose exec -it toolbox python udp_client.py
 ```
 
-Run the UDP client in two separate terminals to see one client update the other. The service directory also contains a recorded demo in `docs/udp-live-demo.gif`.
+Run the UDP client from two terminals to see one client update the other.
 
-## Terraform and Ansible workflow
+## Terraform workflow
 
-Terraform is used for infrastructure. Ansible is used for configuring the Linux VM and deploying the Compose stack.
-
-```text
-Terraform
-→ creates AWS infrastructure
-
-Ansible
-→ configures the VM and deploys the repository
-
-Docker Compose
-→ defines and runs the containers
-```
-
-From the `terraform` directory, the normal Terraform flow is:
+From the `terraform` directory:
 
 ```bash
 terraform init
@@ -256,100 +335,86 @@ terraform plan
 terraform apply
 ```
 
-* `terraform init` downloads the provider plugins and initializes the working directory.
-* `terraform plan` compares the Terraform configuration with state and shows the changes it would make.
-* `terraform apply` performs the changes after showing the plan and asking for confirmation.
+```text
+terraform init
+→ initialises the working directory and backend
 
-From the `ansible` directory, the connection can be tested with:
+terraform plan
+→ shows the infrastructure changes Terraform wants to make
 
-```bash
-ansible -i inventory.ini homelab -m ping
+terraform apply
+→ performs those changes
 ```
-
-* `-i inventory.ini` tells Ansible which inventory file to use.
-* `homelab` selects the inventory group.
-* `-m ping` runs Ansible's ping module. This is an SSH and module execution check, not an ICMP network ping.
-
-Then the playbook can be run with:
-
-```bash
-ansible-playbook -i inventory.ini playbook.yaml
-```
-
-`ansible-playbook` applies the desired state defined in `playbook.yaml` to the hosts from the inventory.
 
 ## Repository layout
 
 ```text
 .
-├── ansible/            # EC2 inventory and deployment playbook
-├── docs/               # Logbook, plans, TODOs, and protocol demo
-├── homelab-api/        # Flask API and Dockerfile
-├── nginx/              # Nginx Compose service and reverse-proxy config
-├── tcp-service/        # Custom TCP protocol server and protocol README
-├── terraform/          # AWS infrastructure as code
-├── toolbox/            # Internal interactive TCP and UDP clients
-├── udp-service/        # UDP live-text synchronization server
-└── compose.yaml        # Root Compose file that includes the services
+├── .github/
+│   └── workflows/           # CI and CD workflows
+├── docs/                    # Logbook and project notes
+├── homelab-api/             # Flask API example workload
+├── nginx/                   # Nginx service and reverse-proxy config
+├── tcp-service/             # TCP protocol server and client
+├── terraform/               # AWS infrastructure and bootstrap config
+│   ├── bootstrap/           # Long-lived IAM and GitHub OIDC setup
+│   └── cloud-init.yaml      # First-boot host bootstrap configuration
+├── toolbox/                 # Internal TCP and UDP test clients
+├── udp-service/             # UDP live-text service
+└── compose.yaml             # Root Compose configuration
 ```
 
 ## Things I have learned so far
 
-* A container port and a host port are different things. The application listens inside its own container, while Docker port publishing decides whether the host can reach it.
-* `127.0.0.1` inside a container means that container itself, not another container or the EC2 host.
-* Docker Compose gives services internal DNS. `tcp-service:9000` and `homelab-api:5000` work because the service name resolves on the shared Docker network.
-* TCP is a byte stream, so an application protocol needs its own framing. The TCP service uses newline-terminated commands.
-* UDP datagrams are already message boundaries, but delivery and ordering are not guaranteed. The UDP experiment uses full-state updates and sequence numbers to make that visible.
-* A VPC route for `0.0.0.0/0` means traffic can leave through the Internet Gateway. An inbound security-group rule for `0.0.0.0/0` would mean anyone on the internet can reach that port. Those are very different uses of the same CIDR.
-* Terraform and Ansible solve different layers of the same deployment path. Terraform creates AWS resources. Ansible configures the operating system and runs the application stack.
+* A container port and a host port are different things.
+* `127.0.0.1` inside a container means that container itself.
+* Docker Compose service names become internal DNS names on shared networks.
+* TCP is a byte stream, so application protocols need their own framing.
+* UDP preserves message boundaries but does not guarantee delivery or ordering.
+* A VPC route to `0.0.0.0/0` and an inbound security-group rule from `0.0.0.0/0` are very different things.
+* Terraform state is part of the deployment system, which is why remote state matters before multiple actors start applying infrastructure.
+* OIDC lets GitHub Actions obtain temporary AWS credentials without keeping AWS keys in the repository or GitHub secrets.
+* First-boot host setup and recurring workload deployment are different problems.
 
-## What is deliberately not implemented yet
+## What is not implemented yet
 
-This is a learning project, so I am adding layers when they have a clear purpose. These are not in place yet:
+This is deliberately still a small platform.
 
-* public HTTP access through the AWS security group
-* TLS and a public domain
-* GitHub Actions CI/CD
-* remote Terraform state in S3
-* a container registry and pre-built deployment images
-* Kubernetes
-
-## Next steps
-
-The next phase is CI/CD.
-
-The first goal is a safe CI workflow that validates the repository without touching AWS or the live EC2 VM:
+The next layers are:
 
 ```text
-Terraform formatting and validation
-→ Ansible syntax validation
-→ Compose configuration validation
-→ Docker image builds
-→ Python checks and tests as the services grow
+AWS Systems Manager access
+→ remote administration without depending on public SSH
+
+workload CD
+→ deploy Compose changes to the existing VM after merge
+
+public HTTP access
+→ open the intended ingress path safely
+
+TLS and domain setup
+→ HTTPS rather than plain HTTP
+
+hardening
+→ tighten IAM, access paths, host configuration, and failure handling
+
+tests
+→ grow application and integration testing with the workloads
 ```
-
-After that, the plan is to make a normal application change follow this path:
-
-```text
-change Python, Nginx, Compose, or Ansible
-→ CI passes
-→ GitHub Actions triggers Ansible
-→ Ansible updates the EC2 VM
-→ Docker Compose rebuilds or recreates the changed services
-```
-
-Terraform infrastructure deployment will stay a separate path. Before GitHub Actions runs real Terraform plans or applies, the local Terraform state will move to an S3 backend so both WSL and GitHub Actions use the same source of truth.
 
 ## Notes
 
-The detailed build-up of this project is in [docs/logbook.md](docs/logbook.md). The TCP and UDP service directories also have their own protocol-focused READMEs.
+The build-up of the project is documented in [`docs/logbook.md`](docs/logbook.md).
 
-This repository is intentionally evolving as I learn. The current system is small, but it is already one integrated path:
+The repository is evolving as I learn, but the shape is intentionally coherent:
 
 ```text
 Git repository
-→ Terraform creates AWS infrastructure
-→ Ansible configures the VM
-→ Docker Compose runs the services
-→ Nginx provides the HTTP entry point
+→ GitHub Actions
+→ Terraform
+→ AWS infrastructure
+→ EC2 host
+→ Docker Compose
+→ containerised workloads
 ```
+
