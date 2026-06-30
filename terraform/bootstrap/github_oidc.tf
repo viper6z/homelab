@@ -50,18 +50,23 @@ data "aws_iam_policy_document" "cd_identity" {
 
   statement {
     actions = [
-      ""
+      "iam:PassRole"
     ]
-    resources = ["aws_iam_role.ssm_role.arn"]
+    resources = [aws_iam_role.ssm_role.arn]
   }
 
   statement {
     actions = [
-      ""
+      "iam:GetInstanceProfile"
     ]
-    resources = ["aws_iam_instance_profile.ec2_ssm_profile.arn"]
-  }
+    resources = [aws_iam_instance_profile.ec2_ssm_profile.arn]
 
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ec2.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_policy" "cd_identity" {
