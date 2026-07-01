@@ -69,6 +69,32 @@ data "aws_iam_policy_document" "cd_identity" {
     ]
     resources = [aws_iam_instance_profile.ec2_ssm_profile.arn]
   }
+
+  statement { #runner can use these commands defined in the script
+    actions = [
+      "ssm:SendCommand"
+    ]
+    resources = ["arn:aws:ssm:eu-north-1::document/AWS-RunShellScript"]
+  }
+
+  statement { #runner can send commands on this machine 
+    actions = ["ssm:SendCommand"]
+    resources = [
+      "arn:aws:ec2:eu-north-1:127372371185:instance/*"
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "ssm:resourceTag/Role"
+      values   = ["seal-host"]
+    }
+  }
+  statement { #allow runner to read comamnd result
+    actions = [
+      "ssm:GetCommandInvocation"
+    ]
+
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_policy" "cd_identity" {
