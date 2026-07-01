@@ -34,7 +34,7 @@ resource "aws_instance" "app_server" {
 
   user_data                   = file("${path.module}/cloud-init.yaml")
   user_data_replace_on_change = true
-  iam_instance_profile = data.aws_iam_instance_profile.ec2_ssm.name #instance profile for ssm
+  iam_instance_profile        = data.aws_iam_instance_profile.ec2_ssm.name #instance profile for ssm
   tags = {
     Name = "oskar-terraform-server"
   }
