@@ -27,6 +27,7 @@ resource "aws_instance" "app_server" {
   iam_instance_profile        = data.aws_iam_instance_profile.ec2_ssm.name #instance profile for ssm
   tags = {
     Name = "oskar-terraform-server"
+    Role = "seal-host"
   }
 }
 

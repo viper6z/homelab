@@ -1251,4 +1251,11 @@ iam:PassRole
 → allow the runner to attach ssm_role_ec2 to EC2 only
 
 
+**Entry 15**
+
+Have attached the SSM profile to the ec2 vm now and confirmed it works, also verified that cloud init worked and set up the docker environment.
+
+Next up is finishing the pipeline with our new ssm plumbing. Now we can do ssm run for git clone, git pull, docker compose up etc. 
+
+Ive added some new permissions to the github_oidc role, allowing it to send commands and read output from the vm through SSM, although ive realized maybe later i should switch to a PR/Prod role split, since the current layout lets github actions run shell command at CI time. 
 
